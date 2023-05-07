@@ -930,3 +930,50 @@ ax[2].legend()
 plt.show()
 ```
 > ![image](https://user-images.githubusercontent.com/115389450/236682546-48bce0af-1d38-467e-8115-21b0dc96e037.png)
+
+## 11. Make Predictions
+### 11.1 Make Predictions on Test Set
+```
+test_data = test.as_numpy_iterator()
+```
+```
+test_sample = test_data.next()
+```
+```
+yhat = facetracker.predict(test_sample[0])
+```
+```
+fig, ax = plt.subplots(ncols=4, figsize=(20,20))
+for idx in range(4):
+    sample_image = test_sample[0][idx]
+    sample_coords = yhat[1][idx]
+
+    if yhat[0][idx] > 0.5:
+        cv2.rectangle(sample_image,
+                      tuple(np.multiply(sample_coords[:2], [120,120]).astype(int)),
+                      tuple(np.multiply(sample_coords[2:], [120,120]).astype(int)),
+                            (255,0,0), 2)
+    
+    ax[idx].imshow(sample_image)
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236683629-60448024-651b-4b9f-b9e0-df20a653976a.png)
+
+### 11.2 Save the Model
+```
+from tensorflow.keras.models import load_model
+```
+```
+facetracker.save('/content/drive/MyDrive/facemodel/uiyongfacetracker.onnx')
+```
+> 이 부분이 걱정이다. onnx로 저장하는 방법.. 우선 차후에 고민 해보자
+```
+facetracker.save('/content/drive/MyDrive/facemodel/uiyongfacetracker.h5')
+```
+> 혹시 몰라서 h5 모델 또한 같이 생성하였다.
+```
+facetracker = load_model('/content/drive/MyDrive/facemodel/uiyongfacetracker.h5')
+```
+> 모델 불러오는 방법.
+
+### 11.3 Real Time Detection 
+> test 해야함.
