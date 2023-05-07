@@ -341,5 +341,76 @@ plt.imshow(augmented['image']) # 파란색으로 보여도 실제 파란색이 �
 
 ### 현재까지 하나의 이미지에만 적용을 하였다.
 ## 5. 증강 파이프라인 구축 및 실행
-### 5.1 증강 파이프라인 실행
+### 5.1 증강 파이프라인 실행 ( 모든 이미지에 적용하기 )
+> 폴더만들기
+> ![image](https://user-images.githubusercontent.com/115389450/236672833-9b36ed7d-0d93-4b53-b75c-a37f22073d83.png)
 ```
+# 하나의 이미지에서 사각형을 그렸지만,
+# 모든 데이터가 적용 되도록 해야 한다.
+for partition in ['train', 'test', 'val']:
+    for image in os.listdir(os.path.join('drive','MyDrive','data', partition, 'images')):
+        img = cv2.imread(os.path.join('drive','MyDrive','data', partition, 'images', image))
+
+        coords = [0,0,0.00001,0.00001]
+        label_path = os.path.join('drive','MyDrive','data', partition, 'labels', f'{image.split(".")[0]}.json')
+        if os.path.exists(label_path):
+            with open(label_path, 'r') as f:
+                label = json.load(f)
+            
+            coords[0] = label['shapes'][0]['points'][0][0]
+            coords[1] = label['shapes'][0]['points'][0][1]
+            coords[2] = label['shapes'][0]['points'][1][0]
+            coords[3] = label['shapes'][0]['points'][1][1]
+            coords = list(np.divide(coords, [640,480,640,480]))
+        
+        try:
+            for x in range(60): # 기본 이미지당 60개의 이미지 생성하기 ( 증강 이미지 )
+                augmented = augmentor(image=img, bboxes=[coords], class_labels=['face'])
+                cv2.imwrite(os.path.join('drive','MyDrive','aug_data', partition, 'images', f'{image.split(".")[0]}.{x}.jpg'), augmented['image'])
+
+                annotation = {}
+                annotation['image'] = image
+
+                if os.path.exists(label_path):
+                    if len(augmented['bboxes']) == 0:
+                        annotation['bbox'] = [0,0,0,0]
+                        annotation['class'] = 0
+                    else:
+                        annotation['bbox'] = augmented['bboxes'][0]
+                        annotation['class'] = 1
+                else:
+                    annotation['bbox'] = [0,0,0,0]
+                    annotation['class'] = 0
+                
+                with open(os.path.join('drive','MyDrive','aug_data', partition, 'labels', f'{image.split(".")[0]}.{x}.json'), 'w') as f:
+                    json.dump(annotation, f)
+        except Exception as e:
+            print(e)
+
+```
+### 5.2 증강 이미지를 Tensorflow 데이터 세트에 로드
+```
+# 5.2 Load Augmented Images to Tensorflow Dataset
+train_images = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/train/images/*.jpg', shuffle=False)
+train_images = train_images.map(load_image)
+train_images = train_images.map(lambda x: tf.image.resize(x, (120, 120)))
+train_images = train_images.map(lambda x: x/255)
+```
+### image를 resize(120,120) 하는 이유는 그것을 더 압축하여, 더 효율적인 신경망 전달
+### x를 255로 나누어 0과 1 최종 레이어에 대한 시그모이드 활성화
+```
+test_images = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/test/images/*.jpg', shuffle=False)
+test_images = test_images.map(load_image)
+test_images = test_images.map(lambda x: tf.image.resize(x, (120, 120)))
+test_images = test_images.map(lambda x: x/255)
+```
+```
+val_images = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/val/images/*.jpg', shuffle=False)
+val_images = val_images.map(load_image)
+val_images = val_images.map(lambda x: tf.image.resize(x, (120, 120)))
+val_images = val_images.map(lambda x: x/255)
+```
+```
+train_images.as_numpy_iterator().next()
+```
+![image](https://user-images.githubusercontent.com/115389450/236673429-b4fbd803-3457-43d1-a120-e26a86ce1412.png)
