@@ -1,4 +1,6 @@
 # The-16th-machinelearning-deeplearning-team-project-23.05.02-05.12
+> ![image](https://user-images.githubusercontent.com/115389450/236685837-2d15ba4a-2d22-4c6f-881a-f9344d35f236.png)
+
 
 ## 1. 필요한 라이브러리 설치 및 데이터 가져오기
 ### 1.1 설정
