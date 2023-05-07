@@ -113,7 +113,7 @@ tf.config.list_physical_devices('GPU')
 > [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
 ### 2.3 TF 데이터 파이프라인에 이미지 로드
 ```
-images = tf.data.Dataset.list_files('/content/drive/MyDrive/data/images/*.jpg', shuffle=False)
+images = tf.data.Dataset.list_files('/content/drive/MyDrive/data/images/*.jpg', shuffle=False) # 여기서 shuffle을 해제하면 랜덤 이미지를 아래에서 결과값으로 얻는다.
 ```
 ```
 images.as_numpy_iterator().next() # 지정된 파일 경로 확인, 경로가 중요하다.
@@ -129,3 +129,83 @@ images = images.map(load_image)
 ```
 [tensorflow.Dataset.map](https://www.tensorflow.org/api_docs/python/tf/data/Dataset#map)
 > ![image](https://user-images.githubusercontent.com/115389450/236659669-55d5b755-a2dc-41be-80c1-aaf02b69e8f5.png)
+
+```
+images.as_numpy_iterator().next()
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236662061-45a36535-ba72-4dbb-a661-dc3e828e7a4d.png)
+```
+type(images)
+```
+> tensorflow.python.data.ops.map_op._MapDataset
+
+### 2.4 matplotlib로 원시 이미지 보기
+```
+image_generator = images.batch(4).as_numpy_iterator() # 4개의 집합으로 4개를 시각화 하기
+```
+[tensorflow.Dataset.batch](https://www.tensorflow.org/api_docs/python/tf/data/Dataset#batch)
+>![image](https://user-images.githubusercontent.com/115389450/236662274-201c3c9d-94f4-4ea9-82a6-2229299c835e.png)
+
+```
+plot_images = image_generator.next() # 매번 새로운 데이터 배치로 돌아온다.
+```
+```
+fig, ax = plt.subplots(ncols=4, figsize=(20,20))
+for idx, image in enumerate(plot_images):
+    ax[idx].imshow(image)
+plt.show()
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236662366-a46ee3d8-5966-4f11-b0f2-e3da3f8891bd.png)
+
+### tensorflow 데이터 파이프라인을 사용하므로, 메모리를 제한한다.
+## 3. 증강되지 않은 데이터 분할
+### 3.1 수동으로 훈련 , 테스트 , 검증 데이터 분할하기 위해 폴더를 만든다.
+> ![image](https://user-images.githubusercontent.com/115389450/236664249-9f0d8978-0300-4d18-bbc2-79509f2aa007.png)
+> ![image](https://user-images.githubusercontent.com/115389450/236664355-07158f8a-0264-4a55-bbc6-c41f259b8cbf.png)
+#### 90*.7 = 62.9999
+#### 90개의 수집데이터에서, 70% 즉 63개의 이미지를 훈련 데이터로 사용한다.
+#### 90*.15 = 13.5 
+#### 90개의 수집데이터에서, 15%,15% 즉 14개와 13개의 이미지를 테스트, 검증 데이터로 사용한다.
+> 그다지 과학적이지 않는 방법이지만, 현재 실습 단계에서 시도하는 방법이다.
+> 90개의 데이터 중 70%인 63개 이미지를 무작위로 선별한다. -> train images
+
+> 90개의 데이터 중 15%,15%인 14개 이미지, 13개 이미지를 선별 -> test, val images
+
+### 3.2 일치하는 레이블 이동
+```
+for folder in ['train','test','val']:
+    for file in os.listdir(os.path.join('drive','MyDrive','data', folder, 'images')):
+
+        filename = file.split('.')[0]+'.json'
+        existing_filepath = os.path.join('drive','MyDrive','data', 'labels', filename)
+        if os.path.exists(existing_filepath):
+            new_filepath = os.path.join('drive','MyDrive','data',folder,'labels',filename)
+            os.replace(existing_filepath, new_filepath)
+```
+## 4.Albumentation을 사용하여 이미지 및 레이블에 이미지 확대 적용
+### 4.1 변환 파이프라인 Albumentation설정
+```
+import albumentations as alb
+```
+[albumentation reference](https://albumentations.ai/docs/getting_started/bounding_boxes_augmentation/)
+> ![image](https://user-images.githubusercontent.com/115389450/236669984-67fce28a-c8af-4496-93b2-a96dc4a65609.png)
+
+```
+img = cv2.imread(os.path.join('drive','MyDrive','data','train','images','000497ff-ea22-11ed-ba64-d46d6d5d1960.jpg'))
+```
+```
+img.shape
+```
+> (480, 640, 3) # 기존 이미지 픽셀이 480x640이므로 아래에서 자를 때 450x450이 가능한 것
+```
+augmentor = alb.Compose([alb.RandomCrop(width=450, height=450), # 여기 최소값에 주의
+                         alb.HorizontalFlip(p=0.5), 
+                         alb.RandomBrightnessContrast(p=0.2),
+                         alb.RandomGamma(p=0.2),
+                         alb.RGBShift(p=0.2),
+                         alb.VerticalFlip(p=0.5)],
+                        bbox_params=alb.BboxParams(format='albumentations', # 여기형식주의
+                                                   label_fields=['class_labels']))
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236670355-ccaabeef-d83d-4d55-b25b-a423550f3d36.png)
+> bbox_params=alb.BboxParams(format='albumentations', 위 이미지에서 형식마다 사이즈가 다르다는 것을 보여줌
