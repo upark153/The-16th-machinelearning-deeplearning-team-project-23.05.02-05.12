@@ -414,3 +414,112 @@ val_images = val_images.map(lambda x: x/255)
 train_images.as_numpy_iterator().next()
 ```
 ![image](https://user-images.githubusercontent.com/115389450/236673429-b4fbd803-3457-43d1-a120-e26a86ce1412.png)
+
+## 6. 라벨 준비하기
+### 6.1 라벨 로딩 함수
+```
+# 6. Prepare Labels
+# 6.1 Build Label Loading Function
+def load_labels(label_path):
+    with open(label_path.numpy(), 'r', encoding = "utf-8") as f:
+        label = json.load(f)
+    return [label['class']], label['bbox']
+```
+### 6.2 tensorflow 데이터 세트에 라벨 로드
+```
+train_labels = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/train/labels/*.json', shuffle = False)
+```
+```
+train_labels.as_numpy_iterator().next() # 경로 확인
+```
+> b'/content/drive/MyDrive/aug_data/train/labels/000497ff-ea22-11ed-ba64-d46d6d5d1960.0.json'
+```
+train_labels = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/train/labels/*.json', shuffle = False)
+train_labels = train_labels.map(lambda x: tf.py_function(load_labels, [x], [tf.uint8, tf.float16]))
+```
+> 람다 함수를 사용하여 루프를 통해 각 개별 파일 이름은 tf.py_function 래핑 기능
+> 위에서 정의한 load_labels 함수를 사용하고 있다.
+```
+test_labels = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/test/labels/*.json', shuffle = False)
+test_labels = test_labels.map(lambda x: tf.py_function(load_labels, [x], [tf.uint8, tf.float16]))
+```
+```
+val_labels = tf.data.Dataset.list_files('/content/drive/MyDrive/aug_data/val/labels/*.json', shuffle = False)
+val_labels = val_labels.map(lambda x: tf.py_function(load_labels, [x], [tf.uint8, tf.float16]))
+```
+```
+train_labels.as_numpy_iterator().next()
+```
+> (array([1], dtype=uint8),
+ array([0.12134, 0.2059 , 0.5386 , 0.7407 ], dtype=float16))
+
+## 7. 라벨 및 이미지 샘플 결합
+### 7.1 파티션 길이 확인
+```
+len(train_images), len(train_labels), len(test_images), len(test_labels), len(val_images), len(val_labels)
+```
+> (3780, 3780, 840, 840, 780, 780) # 훈련 샘플 3780, 테스트 840, 검증 780 이미지
+### 7.2 최종 데이터 세트 생성 ( 이미지 / 라벨 )
+```
+# 7.2 Create Final Datasets (Images/Labels)
+train = tf.data.Dataset.zip((train_images, train_labels)) # zip 으로 결합.
+train = train.shuffle(4000) # 데이터 세트의 크기보다 커야함. ex. 3780 < 4000
+train = train.batch(8) # 8개의 이미지와 8개의 라벨
+train = train.prefetch(4) # 병목 현상 제거
+```
+```
+test = tf.data.Dataset.zip((test_images, test_labels))
+test = test.shuffle(1300)
+test = test.batch(8)
+test = test.prefetch(4)
+```
+```
+val = tf.data.Dataset.zip((val_images, val_labels))
+val = val.shuffle(1000)
+val = val.batch(8)
+val = val.prefetch(4)
+```
+```
+train.as_numpy_iterator().next()[0].shape
+```
+> (8, 120, 120, 3)  # 이미지 8개, 너비 120 픽셀 120, 3채널
+```
+train.as_numpy_iterator().next()[1]
+```
+> (array([[1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1]], dtype=uint8),
+ array([[0.2754, 0.191 , 0.6973, 0.7607],
+        [0.2396, 0.1869, 0.641 , 0.733 ],
+        [0.2974, 0.2334, 0.707 , 0.7783],
+        [0.4763, 0.2461, 0.89  , 0.809 ],
+        [0.3228, 0.2404, 0.7437, 0.8135],
+        [0.1714, 0.2808, 0.5854, 0.758 ],
+        [0.    , 0.2585, 0.3806, 0.746 ],
+        [0.436 , 0.2039, 0.8555, 0.683 ]], dtype=float16))
+
+### 7.3 이미지 및 주석 보기
+```
+data_samples = train.as_numpy_iterator()
+```
+```
+res = data_samples.next()
+```
+```
+fig, ax = plt.subplots(ncols=4, figsize=(20, 20))
+for idx in range(4):
+    sample_image = res[0][idx]
+    sample_coords = res[1][1][idx]
+
+    cv2.rectangle(sample_image,
+                  tuple(np.multiply(sample_coords[:2], [120,120]).astype(int)),
+                  tuple(np.multiply(sample_coords[2:], [120,120]).astype(int)),
+                    (255,0,0), 2)
+    ax[idx].imshow(sample_image)
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236674594-59ef4a7e-c7ae-4b16-9500-4229ed294479.png)
