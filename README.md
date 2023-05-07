@@ -523,3 +523,119 @@ for idx in range(4):
     ax[idx].imshow(sample_image)
 ```
 > ![image](https://user-images.githubusercontent.com/115389450/236674594-59ef4a7e-c7ae-4b16-9500-4229ed294479.png)
+
+## 8. 기능적 API를 사용하여 딥 러닝 구축
+### 8.1 레이어 및 기본 네트워크 가져오기 ( 분류모델(vgg16), 회귀모델 )
+```
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv2D, Dense, GlobalMaxPooling2D
+from tensorflow.keras.applications import VGG16
+```
+>![image](https://user-images.githubusercontent.com/115389450/236675558-7dcfd89e-9619-436d-9f76-7c8bcdb817ee.png)
+>![image](https://user-images.githubusercontent.com/115389450/236675592-12c6b1e9-2d4c-462e-8dbe-27ce291c681a.png)
+
+### 8.2 VGG16 다운로드 ( 인스턴스 만들기 )
+```
+vgg = VGG16(include_top=False)
+```
+> Downloading data from https://storage.googleapis.com/tensorflow/keras-applications/vgg16/vgg16_weights_tf_dim_ordering_tf_kernels_notop.h5
+58889256/58889256 [==============================] - 4s 0us/step
+![image](https://user-images.githubusercontent.com/115389450/236676294-7bc74101-bca0-4bd6-9249-1f33a695fdab.png)
+> ![image](https://user-images.githubusercontent.com/115389450/236676237-b1a9979b-48b6-470c-a476-68762929c8b0.png)
+
+```
+vgg.summary()
+```
+> Model: "vgg16"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_1 (InputLayer)        [(None, None, None, 3)]   0         
+                                                                 
+ block1_conv1 (Conv2D)       (None, None, None, 64)    1792      
+                                                                 
+ block1_conv2 (Conv2D)       (None, None, None, 64)    36928     
+                                                                 
+ block1_pool (MaxPooling2D)  (None, None, None, 64)    0         
+                                                                 
+ block2_conv1 (Conv2D)       (None, None, None, 128)   73856     
+                                                                 
+ block2_conv2 (Conv2D)       (None, None, None, 128)   147584    
+                                                                 
+ block2_pool (MaxPooling2D)  (None, None, None, 128)   0         
+                                                                 
+ block3_conv1 (Conv2D)       (None, None, None, 256)   295168    
+                                                                 
+ block3_conv2 (Conv2D)       (None, None, None, 256)   590080    
+                                                                 
+ block3_conv3 (Conv2D)       (None, None, None, 256)   590080    
+                                                                 
+ block3_pool (MaxPooling2D)  (None, None, None, 256)   0         
+                                                                 
+ block4_conv1 (Conv2D)       (None, None, None, 512)   1180160   
+                                                                 
+ block4_conv2 (Conv2D)       (None, None, None, 512)   2359808   
+                                                                 
+ block4_conv3 (Conv2D)       (None, None, None, 512)   2359808   
+                                                                 
+ block4_pool (MaxPooling2D)  (None, None, None, 512)   0         
+                                                                 
+ block5_conv1 (Conv2D)       (None, None, None, 512)   2359808   
+                                                                 
+ block5_conv2 (Conv2D)       (None, None, None, 512)   2359808   
+                                                                 
+ block5_conv3 (Conv2D)       (None, None, None, 512)   2359808   
+                                                                 
+ block5_pool (MaxPooling2D)  (None, None, None, 512)   0         
+                                                                 
+=================================================================
+Total params: 14,714,688
+Trainable params: 14,714,688
+Non-trainable params: 0
+_________________________________________________________________
+
+### 원본이미지에서 (None, None, None, 512) 이 부분이 변경되거나 조정될 수 있다.
+
+### 8.3 네트워크 인스턴스 빌드 ( 신경망 구축 )
+```
+# 8.3 Build instance of Network
+def build_model(): 
+    input_layer = Input(shape=(120,120,3)) # 입력 레이어 지정, 신경망을 구축할 때마다 네트워크가 있어야함
+
+    vgg = VGG16(include_top=False)(input_layer)
+
+    # Classification Model
+    f1 = GlobalMaxPooling2D()(vgg)
+    class1 = Dense(2048, activation='relu')(f1)
+    class2 = Dense(1, activation='sigmoid')(class1)
+
+    # Bounding box model
+    f2 = GlobalMaxPooling2D()(vgg)
+    regress1 = Dense(2048, activation='relu')(f2)
+    regress2 = Dense(4, activation='sigmoid')(regress1)
+
+    facetracker = Model(inputs=input_layer, outputs=[class2, regress2])
+    return facetracker
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236676756-7491c29b-b421-4ba9-a3ec-2ed23d8a0cf8.png)
+```
+train.as_numpy_iterator().next()[1]
+```
+> 현재 이부분에서 0의 값을 취하는 데이터셋트를 포함을 시키지 못했다. 결과가 어떻게 나올까?
+> 그것은 추후에 알아보고, 방법론에 대해 알았으니 수정작업을 해야할듯 싶기도 하다.
+(array([[1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1],
+        [1]], dtype=uint8),
+ array([[0.6035, 0.2068, 1.    , 0.7573],
+        [0.484 , 0.285 , 0.8438, 0.664 ],
+        [0.1653, 0.256 , 0.5693, 0.818 ],
+        [0.566 , 0.291 , 1.    , 0.878 ],
+        [0.51  , 0.1914, 0.9316, 0.7837],
+        [0.1643, 0.1665, 0.603 , 0.753 ],
+        [0.4426, 0.299 , 0.8623, 0.7783],
+        [0.2566, 0.267 , 0.658 , 0.813 ]], dtype=float16))
