@@ -714,3 +714,219 @@ classes, coords
 batches_per_epoch = len(train) # 473
 lr_decay = (1./0.75 -1)/batches_per_epoch
 ```
+```
+lr_decay
+```
+> 0.0007047216349541929
+```
+opt = tf.keras.optimizers.legacy.Adam(learning_rate=0.0001, decay=lr_decay)
+```
+### 9.2 Create Localization Loss and Classification Loss (지역화 손실 및 분류 손실 생성)
+> ![image](https://user-images.githubusercontent.com/115389450/236679440-b12486e4-1c1d-4e09-bd2d-4d64e1afddfc.png)
+### 실제 좌표사이의 거리, 예상 거리
+```
+# 9.2 Create Localization Loss and Classification Loss
+def localization_loss(y_true, yhat):
+    delta_coord = tf.reduce_sum(tf.square(y_true[:,:2] - yhat[:,:2]))
+
+    h_true = y_true[:,3] - y_true[:,1]
+    w_true = y_true[:,2] - y_true[:,0]
+
+    h_pred = yhat[:,3] - yhat[:,1]
+    w_pred = yhat[:,2] - yhat[:,0]
+
+    delta_size = tf.reduce_sum(tf.square(w_true - w_pred) + tf.square(h_true-h_pred))
+
+    return delta_coord + delta_size
+```
+```
+classloss = tf.keras.losses.BinaryCrossentropy() # 분류 손실
+regressloss = localization_loss # 회귀 손실
+```
+### 9.3 Test out Loss Metrics ( 손실 메트릭 테스트 )
+```
+localization_loss(y[1], coords).numpy()
+```
+> 3.0786583
+```
+classloss(y[0], classes).numpy()
+```
+> 0.3750791
+```
+regressloss(y[1], coords).numpy()
+```
+> 3.0786583
+
+## 10. Train Neural Network ( 훈련하기 )
+### 10.1 Create Custom Model Class ( 사용자 지정 모델 클래스 만들기 )
+```
+class FaceTracker(Model):
+    def __init__(self, eyetracker, **kwargs): # facetracker = build_model() 
+        super().__init__(**kwargs)
+        self.model = eyetracker
+    
+    def compile(self, opt, classloss, localizationloss, **kwargs): # opt를 통과하여 분류 손실 및 회귀손실 변수 설정
+        super().compile(**kwargs) # 컴파일 하고 있는 하위 클래스 모델
+        self.closs = classloss
+        self.lloss = localizationloss
+        self.opt = opt
+    
+    def train_step(self, batch, **kwargs):
+        
+        X, y = batch
+
+        with tf.GradientTape() as tape: # keras에게 시작하도록 지시, 
+            classes, coords = self.model(X, training=True)
+
+            batch_classloss = self.closs(y[0], classes) # 손실함수를 사용하여 배치 클래스를 얻는다.
+            batch_localizationloss = self.lloss(tf.cast(y[1], tf.float32), coords)
+
+            total_loss = batch_localizationloss+0.5*batch_classloss # 손실 메트릭
+
+            grad = tape.gradient(total_loss, self.model.trainable_variables) # 손실에 대한 기울기
+        
+        opt.apply_gradients(zip(grad, self.model.trainable_variables)) # 경사하강법 적용
+
+        return {"total_loss":total_loss, "class_loss":batch_classloss, "regress_loss":batch_localizationloss}
+    
+    def test_step(self, batch, **kwargs):
+        X, y = batch
+
+        classes, coords = self.model(X, training=False)
+
+        batch_classloss = self.closs(y[0], classes)
+        batch_localizationloss = self.lloss(tf.cast(y[1], tf.float32), coords)
+        total_loss = batch_localizationloss+0.5*batch_classloss
+        
+        return {"total_loss":total_loss, "class_loss":batch_classloss, "regress_loss":batch_localizationloss}
+    
+    def call(self, X, **kwargs):
+        return self.model(X, **kwargs)
+```  
+```
+model = FaceTracker(facetracker)
+```
+```
+model.compile(opt, classloss, regressloss)
+```
+
+### 10.2 Train
+```
+logdir = 'logs'
+```
+```
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+```
+```
+hist = model.fit(train, epochs=40, validation_data=val,  # fit - 모델호출, 훈련 기록을 얻기 위해 변수 설정
+                 callbacks=[tensorboard_callback])
+```         
+```
+Epoch 1/40
+473/473 [==============================] - 19s 17ms/step - total_loss: 0.0446 - class_loss: 0.0027 - regress_loss: 0.0432 - val_total_loss: 0.0026 - val_class_loss: 5.8413e-06 - val_regress_loss: 0.0026
+Epoch 2/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0057 - class_loss: 3.9029e-06 - regress_loss: 0.0057 - val_total_loss: 0.0063 - val_class_loss: 1.8179e-06 - val_regress_loss: 0.0063
+Epoch 3/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0051 - class_loss: 1.7928e-06 - regress_loss: 0.0051 - val_total_loss: 9.6628e-04 - val_class_loss: 6.5565e-07 - val_regress_loss: 9.6595e-04
+Epoch 4/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0031 - class_loss: 7.7030e-07 - regress_loss: 0.0031 - val_total_loss: 8.2607e-04 - val_class_loss: 9.2387e-07 - val_regress_loss: 8.2561e-04
+Epoch 5/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0028 - class_loss: 5.2123e-07 - regress_loss: 0.0028 - val_total_loss: 0.0027 - val_class_loss: 8.0466e-07 - val_regress_loss: 0.0027
+Epoch 6/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0025 - class_loss: 3.5725e-07 - regress_loss: 0.0024 - val_total_loss: 0.0047 - val_class_loss: 8.9407e-08 - val_regress_loss: 0.0047
+Epoch 7/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0019 - class_loss: 2.4260e-07 - regress_loss: 0.0019 - val_total_loss: 0.0037 - val_class_loss: 1.1921e-07 - val_regress_loss: 0.0037
+Epoch 8/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0017 - class_loss: 1.6476e-07 - regress_loss: 0.0017 - val_total_loss: 0.0019 - val_class_loss: 3.5763e-07 - val_regress_loss: 0.0019
+Epoch 9/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0018 - class_loss: 1.2421e-07 - regress_loss: 0.0018 - val_total_loss: 0.0087 - val_class_loss: 5.9605e-08 - val_regress_loss: 0.0087
+Epoch 10/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0017 - class_loss: 1.0239e-07 - regress_loss: 0.0017 - val_total_loss: 0.0026 - val_class_loss: 2.9802e-08 - val_regress_loss: 0.0026
+Epoch 11/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0015 - class_loss: 7.2368e-08 - regress_loss: 0.0015 - val_total_loss: 0.0070 - val_class_loss: 1.1921e-07 - val_regress_loss: 0.0070
+Epoch 12/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0015 - class_loss: 6.3251e-08 - regress_loss: 0.0015 - val_total_loss: 0.0057 - val_class_loss: 5.9605e-08 - val_regress_loss: 0.0057
+Epoch 13/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0013 - class_loss: 4.8382e-08 - regress_loss: 0.0013 - val_total_loss: 0.0055 - val_class_loss: 5.9605e-08 - val_regress_loss: 0.0055
+Epoch 14/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0012 - class_loss: 3.6844e-08 - regress_loss: 0.0012 - val_total_loss: 0.0020 - val_class_loss: 2.9802e-08 - val_regress_loss: 0.0020
+Epoch 15/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0011 - class_loss: 2.4332e-08 - regress_loss: 0.0011 - val_total_loss: 0.0053 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0053
+Epoch 16/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0010 - class_loss: 1.8139e-08 - regress_loss: 0.0010 - val_total_loss: 0.0012 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0012
+Epoch 17/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 0.0011 - class_loss: 1.0972e-08 - regress_loss: 0.0011 - val_total_loss: 0.0015 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0015
+Epoch 18/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 9.8945e-04 - class_loss: 5.5329e-09 - regress_loss: 9.8945e-04 - val_total_loss: 0.0018 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0018
+Epoch 19/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 8.0328e-04 - class_loss: 2.8293e-09 - regress_loss: 8.0327e-04 - val_total_loss: 0.0021 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0021
+Epoch 20/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 8.5735e-04 - class_loss: 1.2260e-09 - regress_loss: 8.5735e-04 - val_total_loss: 0.0026 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0026
+Epoch 21/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 6.9972e-04 - class_loss: 4.4012e-10 - regress_loss: 6.9972e-04 - val_total_loss: 0.0020 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0020
+Epoch 22/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 7.2591e-04 - class_loss: 1.5719e-10 - regress_loss: 7.2591e-04 - val_total_loss: 0.0024 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0024
+Epoch 23/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 7.0597e-04 - class_loss: 6.2874e-11 - regress_loss: 7.0597e-04 - val_total_loss: 0.0031 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0031
+Epoch 24/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 7.0991e-04 - class_loss: 6.2874e-11 - regress_loss: 7.0991e-04 - val_total_loss: 0.0023 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0023
+Epoch 25/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 5.7372e-04 - class_loss: 0.0000e+00 - regress_loss: 5.7372e-04 - val_total_loss: 2.6476e-04 - val_class_loss: 0.0000e+00 - val_regress_loss: 2.6476e-04
+Epoch 26/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 5.1520e-04 - class_loss: 0.0000e+00 - regress_loss: 5.1520e-04 - val_total_loss: 0.0011 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0011
+Epoch 27/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 4.9171e-04 - class_loss: 0.0000e+00 - regress_loss: 4.9171e-04 - val_total_loss: 8.2425e-04 - val_class_loss: 0.0000e+00 - val_regress_loss: 8.2425e-04
+Epoch 28/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 4.7744e-04 - class_loss: 0.0000e+00 - regress_loss: 4.7744e-04 - val_total_loss: 5.1396e-04 - val_class_loss: 0.0000e+00 - val_regress_loss: 5.1396e-04
+Epoch 29/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 4.6323e-04 - class_loss: 0.0000e+00 - regress_loss: 4.6323e-04 - val_total_loss: 0.0015 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0015
+Epoch 30/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 4.0935e-04 - class_loss: 0.0000e+00 - regress_loss: 4.0935e-04 - val_total_loss: 0.0051 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0051
+Epoch 31/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 3.8264e-04 - class_loss: 0.0000e+00 - regress_loss: 3.8264e-04 - val_total_loss: 0.0017 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0017
+Epoch 32/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 3.7635e-04 - class_loss: 0.0000e+00 - regress_loss: 3.7635e-04 - val_total_loss: 0.0015 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0015
+Epoch 33/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 3.6421e-04 - class_loss: 0.0000e+00 - regress_loss: 3.6421e-04 - val_total_loss: 0.0056 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0056
+Epoch 34/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 3.3755e-04 - class_loss: 0.0000e+00 - regress_loss: 3.3755e-04 - val_total_loss: 0.0012 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0012
+Epoch 35/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 3.1612e-04 - class_loss: 0.0000e+00 - regress_loss: 3.1612e-04 - val_total_loss: 0.0016 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0016
+Epoch 36/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 2.9806e-04 - class_loss: 0.0000e+00 - regress_loss: 2.9806e-04 - val_total_loss: 0.0018 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0018
+Epoch 37/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 2.4108e-04 - class_loss: 0.0000e+00 - regress_loss: 2.4108e-04 - val_total_loss: 0.0038 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0038
+Epoch 38/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 2.4890e-04 - class_loss: 0.0000e+00 - regress_loss: 2.4890e-04 - val_total_loss: 0.0015 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0015
+Epoch 39/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 2.3650e-04 - class_loss: 0.0000e+00 - regress_loss: 2.3650e-04 - val_total_loss: 0.0019 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0019
+Epoch 40/40
+473/473 [==============================] - 14s 15ms/step - total_loss: 2.1854e-04 - class_loss: 0.0000e+00 - regress_loss: 2.1854e-04 - val_total_loss: 0.0057 - val_class_loss: 0.0000e+00 - val_regress_loss: 0.0057
+```
+> 전체 손실, 분류 손실, 회귀 손실 ... 점진적으로 감소.
+[2.1854e-04에 대한, 2.1854 * 10^(-4) = 00000000021854정도](https://okky.kr/questions/505278)
+```
+hist.history # 훈련도중 손실값을 볼 수 있다.
+```
+### 10.3 Plot Performance
+```
+fig, ax = plt.subplots(ncols=3, figsize=(20,5))
+
+ax[0].plot(hist.history['total_loss'], color='teal', label='loss')
+ax[0].plot(hist.history['val_total_loss'], color='orange', label='val loss')
+ax[0].title.set_text('Loss')
+ax[0].legend()
+
+ax[1].plot(hist.history['class_loss'], color='teal', label='class loss')
+ax[1].plot(hist.history['val_class_loss'], color='orange', label='val class loss')
+ax[1].title.set_text('Classification Loss')
+ax[1].legend()
+
+ax[2].plot(hist.history['regress_loss'], color='teal', label='regress loss')
+ax[2].plot(hist.history['val_regress_loss'], color='orange', label='val regress loss')
+ax[2].title.set_text('Regression Loss')
+ax[2].legend()
+
+plt.show()
+```
+> ![image](https://user-images.githubusercontent.com/115389450/236682546-48bce0af-1d38-467e-8115-21b0dc96e037.png)
