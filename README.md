@@ -970,6 +970,8 @@ facetracker.save('/content/drive/MyDrive/facemodel/uiyongfacetracker.onnx')
 facetracker.save('/content/drive/MyDrive/facemodel/uiyongfacetracker.h5')
 ```
 > 혹시 몰라서 h5 모델 또한 같이 생성하였다.
+> ![image](https://user-images.githubusercontent.com/115389450/236685667-f8399110-fe4c-4f29-b0bf-178b43820ea6.png)
+
 ```
 facetracker = load_model('/content/drive/MyDrive/facemodel/uiyongfacetracker.h5')
 ```
